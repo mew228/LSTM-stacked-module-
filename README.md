@@ -1,66 +1,108 @@
-# 🧠 Stacked Bidirectional LSTM — `LSTM structure`
+# 🧠 Stacked Bidirectional LSTM
 
-A clean, well-commented PyTorch implementation of a **Stacked Bidirectional LSTM** for sequence-to-one prediction tasks — with gradient-based optimization, z-score data formatting, and visual diagnostics.
-
----
-
-## 📁 What's in this folder?
-
-| File | What it does |
-|---|---|
-| `stacked_bilstm.py` | The full model + training script |
-| `bilstm_diagnostics.png` | Auto-generated 4-panel training chart |
-| `README.md` | This file — explains everything! |
+A clean, modular PyTorch implementation of a **Stacked Bidirectional LSTM** for sequence-to-one prediction tasks — with gradient-based optimization, z-score data normalisation, checkpoint saving, config-driven training, and visual diagnostics.
 
 ---
 
-## 🤔 What is an LSTM?
-
-Think of reading a sentence:
-
-> *"The cat sat on the ___"*
-
-To predict the missing word, you need to **remember** what came before. That's exactly what an **LSTM (Long Short-Term Memory)** does — it reads a sequence step-by-step and keeps a memory of what it has seen.
-
-### What makes this one special?
-
-| Feature | Simple Explanation |
-|---|---|
-| **Bidirectional** | Reads the sequence both forwards AND backwards — like reading a sentence left-to-right and right-to-left to understand it better |
-| **Stacked (3 layers)** | Like stacking 3 readers on top of each other — each one learns more abstract patterns from the one below |
-| **Forget Gate** | A "memory filter" inside each cell that decides what to remember and what to forget |
-
----
-
-## ⚙️ How does training work?
+## 📁 Project Structure
 
 ```
-Raw sequences
-    ↓
-Z-score Normalise (μ=0, σ=1)
-    ↓
-Pack variable-length sequences
-    ↓
-3-layer BiLSTM → hidden state
-    ↓
-Fully Connected Head → prediction
-    ↓
-MSE Loss → AdamW Optimizer + Cosine LR → update weights
+LSTM structure/
+├── models/
+│   └── stacked_bilstm.py       ← StackedBiLSTM class
+├── data/
+│   └── dataset.py              ← SyntheticSeqDataset + collate_fn
+├── training/
+│   ├── config.py               ← TrainConfig dataclass (YAML loader)
+│   └── trainer.py              ← Training loop + checkpoint saving
+├── utils/
+│   └── visualize.py            ← 4-panel diagnostic figure
+├── configs/
+│   └── base.yaml               ← Default hyperparameters
+├── checkpoints/                ← Best model saved here (auto-created)
+│   └── best_model.pt
+├── train.py                    ← Entry point (argparse)
+├── requirements.txt
+├── bilstm_diagnostics.png      ← Auto-generated after training
+└── stacked_bilstm.py           ← Original monolithic file (reference)
 ```
-
-### Optimization techniques used
-
-| Technique | Why? |
-|---|---|
-| **AdamW** | Smarter than plain SGD — adapts the learning rate per weight |
-| **CosineAnnealingLR** | Smoothly shrinks the learning rate over time (like slowing down as you approach the destination) |
-| **Gradient Clipping** | Stops the model from taking huge, wild update steps |
 
 ---
 
-## 📊 What does the diagnostic chart show?
+## 🚀 Quick Start
 
-`bilstm_diagnostics.png` has 4 panels:
+### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Train with default config
+
+```bash
+python train.py
+```
+
+### 3. Train with a custom config
+
+```bash
+python train.py --config configs/base.yaml
+```
+
+---
+
+## ⚙️ Configuration (`configs/base.yaml`)
+
+| Key | Default | Description |
+|---|---|---|
+| `input_size` | 32 | Features per time step |
+| `hidden_size` | 128 | LSTM hidden units per direction |
+| `num_layers` | 3 | Number of stacked BiLSTM layers |
+| `dropout` | 0.3 | Dropout rate |
+| `epochs` | 30 | Training epochs |
+| `lr` | 3e-4 | Learning rate (AdamW) |
+| `batch_size` | 32 | Batch size |
+| `n_samples` | 512 | Synthetic dataset size |
+
+---
+
+## 🔖 Checkpointing
+
+The trainer automatically saves `checkpoints/best_model.pt` whenever validation loss improves. To reload:
+
+```python
+import torch
+from models.stacked_bilstm import StackedBiLSTM
+
+model = StackedBiLSTM(input_size=32, hidden_size=128, num_layers=3)
+ckpt  = torch.load("checkpoints/best_model.pt")
+model.load_state_dict(ckpt["model_state"])
+print(f"Best val loss: {ckpt['val_loss']:.5f}  (epoch {ckpt['epoch']})")
+```
+
+---
+
+## 🤔 What is a Stacked BiLSTM?
+
+| Feature | Explanation |
+|---|---|
+| **Bidirectional** | Reads the sequence forwards AND backwards |
+| **Stacked (3 layers)** | Each layer learns more abstract patterns |
+| **Forget Gate** | Controls how much memory to keep at each step |
+
+### Training pipeline
+
+```
+Raw sequences → Z-score Normalise → Pack → 3-layer BiLSTM
+    → Final hidden state concat → FC Head → MSE Loss
+    → AdamW + CosineAnnealingLR + Gradient Clip → update
+```
+
+---
+
+## 📊 Diagnostic Chart (`bilstm_diagnostics.png`)
+
+4-panel figure auto-generated after training:
 
 ```
 ┌──────────────────────┬──────────────────────┐
@@ -72,71 +114,27 @@ MSE Loss → AdamW Optimizer + Cosine LR → update weights
 └──────────────────────┴──────────────────────┘
 ```
 
-- **Loss Curve** — Both lines should go down → the model is learning ✅
-- **Gradient Norm** — Should stay below 1.0 (clipping keeps it safe) ✅
-- **Output Histogram** — Predictions (blue) should overlap targets (orange) ✅
-- **Weight Heatmap** — Colourful = the model learned varied patterns ✅
-
 ---
 
-## 🚀 How to run it
-
-### Requirements
-
-```bash
-pip install torch numpy matplotlib
-```
-
-### Run
-
-```bash
-python stacked_bilstm.py
-```
-
-You'll see a live training table and a `bilstm_diagnostics.png` will be saved automatically.
-
----
-
-## 🧪 Simple Example — What does one training step look like?
-
-```python
-# 1) A batch of 32 sequences, each up to 50 steps long, with 32 features
-x       = torch.randn(32, 50, 32)   # (batch, time, features)
-lengths = torch.randint(10, 51, (32,))  # variable lengths
-
-# 2) Forward pass
-predictions = model(x, lengths)     # shape → (32, 1)
-
-# 3) Compute loss and update
-loss = criterion(predictions, targets)
-loss.backward()
-optimizer.step()
-```
-
-Every step, the model gets a little bit better at predicting the target value from the sequence! 🎯
-
----
-
-## 📈 Training Results (30 epochs)
+## 📈 Expected Results (~30 epochs)
 
 | Metric | Value |
 |---|---|
 | Final Train Loss | ~0.001 |
 | Final Val Loss | ~0.0003 |
-| Gradient Norm | < 0.1 (well below clip threshold) |
+| Gradient Norm | < 0.1 |
 | Trainable Parameters | ~1.2 million |
 
 ---
 
-## 🏗️ Architecture at a Glance
+## 🏗️ Architecture
 
 ```
 Input (32 features/step)
     │
     ▼
 ┌─────────────────────────────┐
-│  BiLSTM Layer 1             │  ← reads sequence forward + backward
-│  hidden: 128 × 2 = 256 dim  │
+│  BiLSTM Layer 1             │  hidden: 128 × 2 = 256 dim
 └────────────────┬────────────┘
                  │ dropout 0.3
 ┌────────────────▼────────────┐
@@ -146,12 +144,36 @@ Input (32 features/step)
 ┌────────────────▼────────────┐
 │  BiLSTM Layer 3             │
 └────────────────┬────────────┘
-                 │  concat fwd + bwd final hidden → 256 dim
+                 │  concat fwd + bwd → 256 dim
 ┌────────────────▼────────────┐
-│  FC: 256 → 128 → ReLU → 1  │  ← single output per sequence
+│  FC: 256 → 128 → ReLU → 1  │
 └─────────────────────────────┘
 ```
 
 ---
 
-*Built with PyTorch 2.x · Python 3.11*
+## 🌐 Web App (Streamlit)
+
+An interactive multi-page web app is included. Run locally with:
+
+```bash
+python -m streamlit run app.py
+```
+
+Then open **http://localhost:8501**
+
+| Page | What it does |
+|---|---|
+| 🏠 Home | Architecture overview & stats |
+| 🏋️ Train | Live hyperparameter tuning + loss chart |
+| 🔮 Inference | Generate a sequence → get a prediction |
+| 📐 Architecture | Interactive weight heatmaps & explanations |
+
+### Deploy to Streamlit Cloud (free)
+1. Push to a public GitHub repo
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app**
+3. Point to `app.py` → **Deploy**
+
+---
+
+*Built with PyTorch 2.x · Python 3.11 · Streamlit*
